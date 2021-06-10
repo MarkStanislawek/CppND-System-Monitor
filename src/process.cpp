@@ -4,30 +4,57 @@
 #include <string>
 #include <vector>
 
+#include "linux_parser.h"
 #include "process.h"
 
 using std::string;
 using std::to_string;
 using std::vector;
 
-// TODO: Return this process's ID
-int Process::Pid() { return 0; }
+Process::Process(int pid)
+    : pid_(pid),
+      cmd_(LinuxParser::Command(pid)),
+      user_(LinuxParser::User(pid)) {
+  Reload();
+}
 
-// TODO: Return this process's CPU utilization
-float Process::CpuUtilization() { return 0; }
+int Process::Pid() const { return pid_; }
 
-// TODO: Return the command that generated this process
-string Process::Command() { return string(); }
+float Process::CpuUtilization() { return cpuUtilization_; }
 
-// TODO: Return this process's memory utilization
-string Process::Ram() { return string(); }
+string Process::Command() const { return cmd_; }
 
-// TODO: Return the user (name) that generated this process
-string Process::User() { return string(); }
+string Process::Ram() const { return ramMb_; }
 
-// TODO: Return the age of this process (in seconds)
-long int Process::UpTime() { return 0; }
+string Process::User() const { return user_; }
 
-// TODO: Overload the "less than" comparison operator for Process objects
-// REMOVE: [[maybe_unused]] once you define the function
-bool Process::operator<(Process const& a[[maybe_unused]]) const { return true; }
+long int Process::UpTime() const { return upTime_; }
+
+bool Process::operator<(Process const& a) const {
+  return cpuUtilization_ < a.cpuUtilization_;
+}
+
+bool Process::operator>(Process const& a) const {
+  return cpuUtilization_ > a.cpuUtilization_;
+}
+
+long Process::GetUpTime() const { return LinuxParser::UpTime(pid_); }
+
+float Process::CalcCpuUtil() {
+  long jiffyDiff = LinuxParser::ActiveJiffies(pid_) - prevJiffies;
+  float activeSeconds = static_cast<float>(jiffyDiff) / LinuxParser::Jiffies();
+  long upTimeDiff = upTime_ - prevUpTime;
+  prevJiffies += jiffyDiff;
+  prevUpTime += upTimeDiff;
+  return activeSeconds / upTimeDiff;
+}
+
+string Process::GetRamInMb() const {
+  return to_string(LinuxParser::Ram(pid_) / 1000);
+}
+
+void Process::Reload() {
+  upTime_ = GetUpTime();
+  cpuUtilization_ = CalcCpuUtil();
+  ramMb_ = GetRamInMb();
+}

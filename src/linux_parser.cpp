@@ -1,5 +1,9 @@
 #include <dirent.h>
 #include <unistd.h>
+#include <cassert>
+#include <filesystem>
+#include <iomanip>
+#include <numeric>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -11,7 +15,6 @@ using std::string;
 using std::to_string;
 using std::vector;
 
-// DONE: An example of how to read data from the filesystem
 string LinuxParser::OperatingSystem() {
   string line;
   string key;
@@ -34,7 +37,6 @@ string LinuxParser::OperatingSystem() {
   return value;
 }
 
-// DONE: An example of how to read data from the filesystem
 string LinuxParser::Kernel() {
   string os, kernel, version;
   string line;
@@ -47,70 +49,177 @@ string LinuxParser::Kernel() {
   return kernel;
 }
 
-// BONUS: Update this to use std::filesystem
 vector<int> LinuxParser::Pids() {
   vector<int> pids;
-  DIR* directory = opendir(kProcDirectory.c_str());
-  struct dirent* file;
-  while ((file = readdir(directory)) != nullptr) {
-    // Is this a directory?
-    if (file->d_type == DT_DIR) {
-      // Is every character of the name a digit?
-      string filename(file->d_name);
-      if (std::all_of(filename.begin(), filename.end(), isdigit)) {
-        int pid = stoi(filename);
-        pids.push_back(pid);
-      }
+  for (auto const& p : std::filesystem::directory_iterator(kProcDirectory))
+    if (p.is_directory()) {
+      std::string name = p.path().filename();
+      if (std::all_of(name.begin(), name.end(), isdigit))
+        pids.emplace_back(stoi(name));
     }
-  }
-  closedir(directory);
   return pids;
 }
 
-// TODO: Read and return the system memory utilization
-float LinuxParser::MemoryUtilization() { return 0.0; }
+float LinuxParser::MemoryUtilization() {
+  vector<long> memInfo = GetMemoryInfo();
+  float totalMem = memInfo.at(0);
+  float usedMem = totalMem - memInfo.at(1);
+  return usedMem / totalMem;
+}
 
-// TODO: Read and return the system uptime
-long LinuxParser::UpTime() { return 0; }
+long LinuxParser::UpTime() {
+  string line = GetLineNumber(kProcDirectory + kUptimeFilename, 1);
+  std::istringstream linestream(line);
+  string utime_str;
+  linestream >> utime_str;
+  return std::stol(utime_str);
+}
 
-// TODO: Read and return the number of jiffies for the system
-long LinuxParser::Jiffies() { return 0; }
+long LinuxParser::Jiffies() { return sysconf(_SC_CLK_TCK); }
 
-// TODO: Read and return the number of active jiffies for a PID
-// REMOVE: [[maybe_unused]] once you define the function
-long LinuxParser::ActiveJiffies(int pid[[maybe_unused]]) { return 0; }
+long LinuxParser::ActiveJiffies(int pid) {
+  vector<string> stats = GetPidStats(pid);
+  long total_time = stol(stats.at(13)) + stol(stats.at(14)) +
+                    stol(stats.at(15)) + stol(stats.at(16));
+  return total_time;
+}
 
-// TODO: Read and return the number of active jiffies for the system
-long LinuxParser::ActiveJiffies() { return 0; }
+long LinuxParser::ActiveJiffies() {
+  vector<long> cpuTimes = CpuUtilization();
+  long totalTime = std::accumulate(cpuTimes.begin(), cpuTimes.end(), 0);
+  long activeTime = totalTime - cpuTimes.at(3);
+  return activeTime;
+}
 
-// TODO: Read and return the number of idle jiffies for the system
-long LinuxParser::IdleJiffies() { return 0; }
+long LinuxParser::IdleJiffies() {
+  vector<long> cpuTimes = CpuUtilization();
+  return cpuTimes.at(3);
+}
 
-// TODO: Read and return CPU utilization
-vector<string> LinuxParser::CpuUtilization() { return {}; }
+vector<long> LinuxParser::CpuUtilization() {
+  string cpuLine = FindLine(kProcDirectory + kStatFilename, "cpu");
+  return GetCpuTimes(cpuLine);
+}
 
-// TODO: Read and return the total number of processes
-int LinuxParser::TotalProcesses() { return 0; }
+int LinuxParser::TotalProcesses() {
+  string line = FindLine(kProcDirectory + kStatFilename, "processes");
+  vector<string> values = GetValues(line);
+  assert(values.size() == 1);
+  return stoi(values.at(0));
+}
 
-// TODO: Read and return the number of running processes
-int LinuxParser::RunningProcesses() { return 0; }
+int LinuxParser::RunningProcesses() {
+  string line = FindLine(kProcDirectory + kStatFilename, "procs_running");
+  vector<string> values = GetValues(line);
+  assert(values.size() == 1);
+  return stoi(values.at(0));
+}
 
-// TODO: Read and return the command associated with a process
-// REMOVE: [[maybe_unused]] once you define the function
-string LinuxParser::Command(int pid[[maybe_unused]]) { return string(); }
+string LinuxParser::Command(int pid) {
+  return GetLineNumber(kProcDirectory + to_string(pid) + "/cmdline", 1);
+}
 
-// TODO: Read and return the memory used by a process
-// REMOVE: [[maybe_unused]] once you define the function
-string LinuxParser::Ram(int pid[[maybe_unused]]) { return string(); }
+long LinuxParser::Ram(int pid) {
+  string memLine =
+      FindLine(kProcDirectory + to_string(pid) + "/status", "VmSize:");
+  vector<string> values = GetValues(memLine);
+  return values.size() == 2 ? stol(values.at(0)) : 0;
+}
 
-// TODO: Read and return the user ID associated with a process
-// REMOVE: [[maybe_unused]] once you define the function
-string LinuxParser::Uid(int pid[[maybe_unused]]) { return string(); }
+string LinuxParser::Uid(int pid) {
+  string uidLine =
+      FindLine(kProcDirectory + to_string(pid) + "/status", "Uid:");
+  return GetValues(uidLine).at(0);
+}
 
-// TODO: Read and return the user associated with a process
-// REMOVE: [[maybe_unused]] once you define the function
-string LinuxParser::User(int pid[[maybe_unused]]) { return string(); }
+string LinuxParser::User(int pid) { return GetUserName(Uid(pid)); }
 
-// TODO: Read and return the uptime of a process
-// REMOVE: [[maybe_unused]] once you define the function
-long LinuxParser::UpTime(int pid[[maybe_unused]]) { return 0; }
+long LinuxParser::UpTime(int pid) {
+  vector<string> stats = GetPidStats(pid);
+  long seconds = UpTime() - (stol(stats.at(21)) / Jiffies());
+  return seconds;
+}
+
+string LinuxParser::FindLine(const string& path, const string& startsWith) {
+  string line;
+  std::ifstream stream(path);
+  if (stream.is_open()) {
+    while (std::getline(stream, line)) {
+      if (line.rfind(startsWith, 0) == 0) {
+        return line;
+      }
+    }
+  }
+  return string();
+}
+
+string LinuxParser::GetLineNumber(const string& path, int lineNbr) {
+  string line;
+  std::ifstream stream(path);
+  if (stream.is_open()) {
+    for (int i = 1; std::getline(stream, line); i++) {
+      if (i == lineNbr) {
+        return line;
+      }
+    }
+  }
+  return string();
+}
+
+vector<string> LinuxParser::GetValues(const string& keyAndValues) {
+  string word;
+  std::istringstream linestream(keyAndValues);
+  linestream >> word;
+  vector<string> values;
+  while (linestream >> word) values.push_back(word);
+  return values;
+}
+
+vector<long> LinuxParser::GetMemoryInfo() {
+  const vector<string> headers{
+      "MemTotal:", "MemFree:", "MemAvailable:", "Buffers:"};
+  vector<long> memInfo;
+  string line;
+  for (string header : headers) {
+    line = FindLine(kProcDirectory + kMeminfoFilename, header);
+    memInfo.push_back(stol(GetValues(line).at(0)));
+  }
+  return memInfo;
+}
+
+vector<long> LinuxParser::GetCpuTimes(const string& cpuLine) {
+  std::istringstream linestream(cpuLine);
+  string item;
+  linestream >> item;
+  vector<long> times;
+  long time;
+  while (linestream >> time) times.push_back(time);
+  return times;
+}
+
+string LinuxParser::GetUserName(const string& uid) {
+  std::ifstream stream(kPasswordPath);
+  if (stream.is_open()) {
+    string line;
+    while (std::getline(stream, line)) {
+      vector<string> split = Split(line);
+      if (split.at(2) == uid) return split.at(0);
+    }
+  }
+  return string();
+}
+
+vector<string> LinuxParser::Split(const string& line, const char delim) {
+  std::istringstream linestream(line);
+  string token;
+  vector<string> tokenized;
+  while (getline(linestream, token, delim)) tokenized.push_back(token);
+  return tokenized;
+}
+
+vector<string> LinuxParser::GetPidStats(int pid) {
+  vector<string> stats =
+      Split(GetLineNumber(kProcDirectory + to_string(pid) + "/stat"), ' ');
+  if (stats.size() != 52) stats = vector<string>(52, "0");
+  return stats;
+}

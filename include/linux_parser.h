@@ -4,6 +4,7 @@
 #include <fstream>
 #include <regex>
 #include <string>
+#include <vector>
 
 namespace LinuxParser {
 // Paths
@@ -40,7 +41,7 @@ enum CPUStates {
   kGuest_,
   kGuestNice_
 };
-std::vector<std::string> CpuUtilization();
+std::vector<long> CpuUtilization();
 long Jiffies();
 long ActiveJiffies();
 long ActiveJiffies(int pid);
@@ -48,10 +49,21 @@ long IdleJiffies();
 
 // Processes
 std::string Command(int pid);
-std::string Ram(int pid);
+long Ram(int pid);
 std::string Uid(int pid);
 std::string User(int pid);
 long int UpTime(int pid);
+
+// Utility function(s)
+
+std::vector<long> GetMemoryInfo();
+std::vector<long> GetCpuTimes(const std::string& cpuLine);
+std::string GetUserName(const std::string& uid);
+std::vector<std::string> GetPidStats(int pid);
+std::string FindLine(const std::string& path, const std::string& startsWith);
+std::string GetLineNumber(const std::string& path, int lineNbr = 1);
+std::vector<std::string> GetValues(const std::string& keyAndValues);
+std::vector<std::string> Split(const std::string& line, const char delim = ':');
 };  // namespace LinuxParser
 
 #endif

@@ -4,7 +4,10 @@
 #include <string>
 #include <vector>
 
+#include <algorithm>
+#include "linux_parser.h"
 #include "process.h"
+
 #include "processor.h"
 #include "system.h"
 
@@ -13,26 +16,62 @@ using std::size_t;
 using std::string;
 using std::vector;
 
-// TODO: Return the system's CPU
+System::System()
+    : kernel_(LinuxParser::Kernel()),
+      operatingSystem_(LinuxParser::OperatingSystem()) {}
+
 Processor& System::Cpu() { return cpu_; }
 
-// TODO: Return a container composed of the system's processes
-vector<Process>& System::Processes() { return processes_; }
+vector<Process>& System::Processes() {
+  // 1. Remove Process instances from processes_ which are no longer running.
+  // 2. Find the difference between pids and processes_
+  // 3. For Process instances still running, reload their resource snapshot
+  // 4. Add new Process instances to processes_ for each new pid.
+  // 5. Sort processes_ for display
+  vector<int> runningPids = LinuxParser::Pids();
+  RemoveProcessesNotRunning(runningPids);
+  vector<int> newProcesses = FindProcessDifference(runningPids);
+  std::for_each(processes_.begin(), processes_.end(),
+                [](Process& p) { p.Reload(); });
+  std::for_each(newProcesses.begin(), newProcesses.end(),
+                [&](int& pid) { processes_.emplace_back(pid); });
+  std::sort(processes_.begin(), processes_.end(), std::greater<Process>());
+  return processes_;
+}
 
-// TODO: Return the system's kernel identifier (string)
-std::string System::Kernel() { return string(); }
+std::string System::Kernel() { return kernel_; }
 
-// TODO: Return the system's memory utilization
-float System::MemoryUtilization() { return 0.0; }
+float System::MemoryUtilization() { return LinuxParser::MemoryUtilization(); }
 
-// TODO: Return the operating system name
-std::string System::OperatingSystem() { return string(); }
+std::string System::OperatingSystem() { return operatingSystem_; }
 
-// TODO: Return the number of processes actively running on the system
-int System::RunningProcesses() { return 0; }
+int System::RunningProcesses() { return LinuxParser::RunningProcesses(); }
 
-// TODO: Return the total number of processes on the system
-int System::TotalProcesses() { return 0; }
+int System::TotalProcesses() { return LinuxParser::TotalProcesses(); }
 
-// TODO: Return the number of seconds since the system started running
-long int System::UpTime() { return 0; }
+long int System::UpTime() { return LinuxParser::UpTime(); }
+
+void System::RemoveProcessesNotRunning(vector<int>& runningPids) {
+  std::sort(runningPids.begin(), runningPids.end());
+  processes_.erase(std::remove_if(processes_.begin(), processes_.end(),
+                                  [runningPids](Process& p) {
+                                    return std::binary_search(
+                                               runningPids.begin(),
+                                               runningPids.end(),
+                                               p.Pid()) == false;
+                                  }),
+                   processes_.end());
+}
+
+vector<int> System::FindProcessDifference(vector<int>& runningPids) {
+  vector<int> intersection;
+  std::transform(processes_.begin(), processes_.end(),
+                 std::inserter(intersection, intersection.begin()),
+                 [](Process& p) -> int { return p.Pid(); });
+  std::sort(intersection.begin(), intersection.end());
+  vector<int> difference;
+  std::set_difference(runningPids.begin(), runningPids.end(),
+                      intersection.begin(), intersection.end(),
+                      std::inserter(difference, difference.begin()));
+  return difference;
+}
