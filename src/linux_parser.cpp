@@ -120,8 +120,9 @@ string LinuxParser::Command(int pid) {
 }
 
 long LinuxParser::Ram(int pid) {
+  // using VmData rather than VmSize for phyical ram display
   string memLine =
-      FindLine(kProcDirectory + to_string(pid) + "/status", "VmSize:");
+      FindLine(kProcDirectory + to_string(pid) + "/status", "VmData:");
   vector<string> values = GetValues(memLine);
   return values.size() == 2 ? stol(values.at(0)) : 0;
 }
@@ -129,7 +130,8 @@ long LinuxParser::Ram(int pid) {
 string LinuxParser::Uid(int pid) {
   string uidLine =
       FindLine(kProcDirectory + to_string(pid) + "/status", "Uid:");
-  return GetValues(uidLine).at(0);
+  vector<string> values = GetValues(uidLine);
+  return values.size() == 4 ? values.at(0) : "";
 }
 
 string LinuxParser::User(int pid) { return GetUserName(Uid(pid)); }
